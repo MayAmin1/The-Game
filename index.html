@@ -455,6 +455,9 @@ function animateToTarget(targetIndex){
     cardQ.textContent = QUESTIONS[targetIndex];
     overlay.classList.add('show');
     localSpinning = false;
+    spinBtn.disabled = false; // Firestore's listener only fires on writes, not on a
+                               // timer, so nothing else re-enables this once the
+                               // lock window (set during spin()) has passed
   }, 4300);
 }
 
