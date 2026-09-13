@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>The Overshare Wheel</title>
+<!--
+  ============================================================
+  SETUP REQUIRED before this file works, ~5 minutes:
+
+  1. Go to https://console.firebase.google.com, sign in with any
+     Google account (free, no card needed), click "Add project".
+  2. In your new project, left sidebar -> Build -> Firestore Database
+     -> "Create database" -> Start in TEST MODE -> pick any region.
+  3. Left sidebar -> Project settings (gear icon) -> scroll to
+     "Your apps" -> click the </> (web) icon -> register an app
+     (nickname doesn't matter, skip hosting).
+  4. It will show you a firebaseConfig object. Copy it and paste it
+     over the placeholder FIREBASE_CONFIG object below, replacing
+     every "REPLACE_ME" value.
+  5. Back in Firestore -> Rules tab, replace the rules with:
+
+       rules_version = '2';
+       service cloud.firestore {
+         match /databases/{database}/documents {
+           match /overshareWheel/{doc} {
+             allow read, write: if true;
+           }
+         }
+       }
+
+     then click Publish. (This makes the one game-state document
+     open to read/write by anyone with the link -- fine for a party
+     game with no personal data, but don't reuse this project for
+     anything sensitive.)
+  6. Save this file, push it to a GitHub repo as index.html, enable
+     GitHub Pages (repo Settings -> Pages -> Deploy from branch),
+     and share the Pages URL.
+  ============================================================
+-->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,300;0,500;0,600;1,500&family=Work+Sans:wght@400;500;600&display=swap');
+
+  :root{
+    --bg-a: #241220;
+    --bg-b: #180b16;
+    --panel: #34172c;
+    --panel-line: rgba(217,165,68,0.18);
+    --gold: #D9A544;
+    --gold-light: #F0C878;
+    --rose: #C6597A;
+    --plum-deep: #5B2A4A;
+    --cream: #F4E8D8;
+    --muted: #B79AA6;
+  }
+
+  *{ box-sizing: border-box; }
+
+  html, body{
+    margin:0; padding:0; min-height:100%;
+    background: radial-gradient(120% 140% at 50% -10%, var(--bg-b) 0%, var(--bg-a) 55%, #150a13 100%);
+    color: var(--cream);
+    font-family: 'Work Sans', sans-serif;
+    overflow-x:hidden;
+  }
+
+  .stage{
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    padding: 40px 20px 56px;
+  }
+
+  .heading{
+    text-align:center;
+    margin-bottom: 6px;
+  }
+
+  .eyebrow{
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 0 0 10px;
+  }
+
+  h1{
+    font-family: 'Fraunces', serif;
+    font-weight: 500;
+    font-style: italic;
+    font-size: clamp(32px, 6vw, 46px);
+    margin: 0 0 10px;
+    color: var(--gold-light);
+    letter-spacing: 0.01em;
+  }
+
+  .sub{
+    max-width: 420px;
+    margin: 0 auto 34px;
+    color: var(--muted);
+    font-size: 15px;
+    line-height: 1.55;
+  }
+
+  .wheel-wrap{
+    position: relative;
+    width: min(78vw, 380px);
+    height: min(78vw, 380px);
+    margin: 10px auto 30px;
+  }
+
+  .pointer{
+    position:absolute;
+    top: -14px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0; height: 0;
+    border-left: 13px solid transparent;
+    border-right: 13px solid transparent;
+    border-top: 22px solid var(--gold-light);
+    filter: drop-shadow(0 2px 3px rgba(0,0,0,0.4));
+    z-index: 5;
+  }
+
+  canvas#wheel{
+    width: 100%;
+    height: 100%;
+    display:block;
+    border-radius: 50%;
+    box-shadow:
+      0 0 0 6px var(--bg-a),
+      0 0 0 8px var(--panel-line),
+      0 18px 40px rgba(0,0,0,0.55);
+    transition: transform 4.2s cubic-bezier(0.15, 0.85, 0.14, 1);
+  }
+
+  .hub{
+    position:absolute;
+    top:50%; left:50%;
+    width: 17%;
+    height: 17%;
+    transform: translate(-50%,-50%);
+    background: radial-gradient(circle at 35% 30%, var(--gold-light), var(--gold) 60%, #b3812f 100%);
+    border-radius: 50%;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.5), inset 0 -2px 4px rgba(0,0,0,0.25);
+    z-index: 4;
+  }
+
+  .spin-btn{
+    font-family: 'Work Sans', sans-serif;
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: 0.02em;
+    color: #2A1420;
+    background: linear-gradient(180deg, var(--gold-light), var(--gold));
+    border: none;
+    padding: 15px 44px;
+    border-radius: 999px;
+    cursor: pointer;
+    box-shadow: 0 8px 20px rgba(217,165,68,0.28), inset 0 1px 0 rgba(255,255,255,0.4);
+    transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+  }
+  .spin-btn:hover:not(:disabled){ transform: translateY(-1px); box-shadow: 0 10px 24px rgba(217,165,68,0.36), inset 0 1px 0 rgba(255,255,255,0.4); }
+  .spin-btn:active:not(:disabled){ transform: translateY(0px) scale(0.98); }
+  .spin-btn:disabled{ opacity: 0.45; cursor: default; }
+
+  .progress{
+    margin-top: 18px;
+    font-size: 13px;
+    color: var(--muted);
+    letter-spacing: 0.02em;
+  }
+  .progress b{ color: var(--gold-light); font-weight: 600; }
+
+  .overlay{
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 6, 13, 0.72);
+    backdrop-filter: blur(3px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.35s ease;
+    z-index: 20;
+  }
+  .overlay.show{ opacity: 1; pointer-events: auto; }
+
+  .card{
+    background: linear-gradient(165deg, var(--panel), #2a1224);
+    border: 1px solid var(--panel-line);
+    border-radius: 22px;
+    padding: 42px 34px 32px;
+    max-width: 440px;
+    width: 100%;
+    text-align: center;
+    box-shadow: 0 30px 60px rgba(0,0,0,0.5);
+    transform: translateY(14px) scale(0.97);
+    transition: transform 0.4s cubic-bezier(0.2,0.9,0.25,1);
+  }
+  .overlay.show .card{ transform: translateY(0) scale(1); }
+
+  .card .num{
+    display:inline-block;
+    font-family: 'Fraunces', serif;
+    font-size: 13px;
+    color: var(--bg-a);
+    background: var(--gold);
+    padding: 4px 13px;
+    border-radius: 999px;
+    margin-bottom: 20px;
+    font-weight: 600;
+  }
+
+  .card .q{
+    font-family: 'Fraunces', serif;
+    font-weight: 500;
+    font-size: clamp(21px, 4.4vw, 26px);
+    line-height: 1.42;
+    color: var(--cream);
+    margin: 0 0 30px;
+  }
+
+  .card .close-btn{
+    font-family: 'Work Sans', sans-serif;
+    font-weight: 500;
+    font-size: 14px;
+    color: var(--gold-light);
+    background: transparent;
+    border: 1px solid var(--panel-line);
+    padding: 11px 28px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  .card .close-btn:hover{ background: rgba(217,165,68,0.1); border-color: var(--gold); }
+
+  .round-done{
+    font-size: 13px;
+    color: var(--rose);
+    margin-top: 10px;
+    display:none;
+  }
+  .round-done.show{ display:block; }
+
+  .status{
+    font-size: 11px;
+    color: rgba(183,154,166,0.55);
+    letter-spacing: 0.03em;
+    margin-top: 26px;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    canvas#wheel{ transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <div class="heading">
+    <p class="eyebrow">a party game</p>
+    <h1>The Overshare Wheel</h1>
+    <p class="sub">Spin the wheel. Answer whatever it lands on &mdash; honestly, no skipping, no take-backs.<br>Everyone with this link sees the same spin.</p>
+  </div>
+
+  <div class="wheel-wrap">
+    <div class="pointer"></div>
+    <canvas id="wheel" width="760" height="760"></canvas>
+    <div class="hub"></div>
+  </div>
+
+  <button class="spin-btn" id="spinBtn">Spin the wheel</button>
+  <p class="progress" id="progress"></p>
+  <p class="round-done" id="roundDone">Full round complete &mdash; every question asked. Spin again to reshuffle.</p>
+  <p class="status" id="status">Synced with everyone on this link</p>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="card">
+    <span class="num" id="cardNum">Q1</span>
+    <p class="q" id="cardQ"></p>
+    <button class="close-btn" id="closeBtn">Back to the wheel</button>
+  </div>
+</div>
+
+<script>
+const QUESTIONS = [
+"What’s something you used to judge people for, but now you completely understand?",
+"What’s a compliment that would actually hurt your feelings?",
+"What’s something you achieved that didn’t feel as good as you thought it would?",
+"What’s a completely normal thing that people do that makes you irrationally angry?",
+"What’s something you do now that makes you feel like you’re aging yourself or “getting old”?",
+"What’s something you’re proud of that nobody ever asks you about?",
+"What’s something you tell people you’re working on but you haven’t touched in months?",
+"What’s a pattern in your life that you can name perfectly but still haven’t broken?",
+"What’s a label people put on you that you secretly hate?",
+"What’s something you believe that almost everyone around you seems to disagree with?",
+"Can you tell me a bad, negative thing about your ex that you chose to ignore?",
+"What does “home” feel like to you (the feeling, not the place)?",
+"What did you used to complain about that you’re genuinely grateful for now?",
+"You mainly listen to podcasts when you’re doing what?",
+"Be honest: between you and me, what is something you’re a complete hypocrite about?",
+"What is something you’d love to be known for someday?",
+"What’s a decision that pretty much changed the whole direction of your life?",
+"What’s the best thing about being exactly where you are today?",
+"What’s the hardest thing you’ve had to admit you were wrong about?",
+"What’s a small thing that made you feel loved recently?",
+"What is something you wish someone had told you five years ago?",
+"What’s something true about you that you rarely tell people?",
+"What do you think people pretend you’re completely fine with (when you’re not)?",
+"What’s a moment you could relive exactly as it happened?",
+"What’s your mentality on work–life balance?",
+"If money wasn’t a factor, where would you choose to live?",
+"If your current situation stayed exactly the same for the rest of your life, how long do you think you’d last before wanting a change?",
+"What’s a lie you’ve been telling yourself that you’re starting to believe?",
+"What makes you feel confident?",
+"If your life story had you as the villain in it, what did you do?",
+"What would you do with your life if no one was around to judge you?",
+"Show me how you act when you’re being introduced to someone you already have an opinion about.",
+"What’s the first thing you do when a plan gets canceled?",
+"What’s your go-to move when you run into an ex?",
+"What’s the most disturbing personality trait that you’ve noticed in yourself?",
+"Do you consider yourself a good person? And why?",
+"What is something you don’t like about me?",
+"Do you envy other people? If yes, for what and why?",
+"What’s the best thing someone could do for you?",
+"What’s a question you want to ask me but didn’t till now?",
+"What is the type of gifts you prefer?",
+"What do you find the most attractive quality in a person?"
+];
+
+const N = QUESTIONS.length;
+const canvas = document.getElementById('wheel');
+const ctx = canvas.getContext('2d');
+const size = canvas.width;
+const cx = size/2, cy = size/2, radius = size/2 - 6;
+const segDeg = 360 / N;
+
+const palette = ['#C6597A', '#D9A544', '#5B2A4A', '#E8B35C'];
+
+function drawWheel(){
+  ctx.clearRect(0,0,size,size);
+  for(let i=0;i<N;i++){
+    const startDeg = -90 + i*segDeg;
+    const endDeg = startDeg + segDeg;
+    const start = startDeg * Math.PI/180;
+    const end = endDeg * Math.PI/180;
+
+    ctx.beginPath();
+    ctx.moveTo(cx,cy);
+    ctx.arc(cx,cy,radius,start,end);
+    ctx.closePath();
+    ctx.fillStyle = palette[i % palette.length];
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(244,232,216,0.14)';
+    ctx.stroke();
+
+    // number label
+    const midDeg = startDeg + segDeg/2;
+    const mid = midDeg * Math.PI/180;
+    const tx = cx + Math.cos(mid) * (radius*0.83);
+    const ty = cy + Math.sin(mid) * (radius*0.83);
+    ctx.save();
+    ctx.translate(tx,ty);
+    ctx.rotate(mid + Math.PI/2);
+    ctx.fillStyle = 'rgba(244,232,216,0.88)';
+    ctx.font = '600 15px Work Sans, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(i+1), 0, 0);
+    ctx.restore();
+  }
+  // outer ring
+  ctx.beginPath();
+  ctx.arc(cx,cy,radius-1,0,Math.PI*2);
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = 'rgba(217,165,68,0.55)';
+  ctx.stroke();
+}
+drawWheel();
+
+// shuffle deck, no repeats until exhausted
+function shuffledDeck(){
+  const arr = Array.from({length:N}, (_,i)=>i);
+  for(let i=arr.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [arr[i],arr[j]] = [arr[j],arr[i]];
+  }
+  return arr;
+}
+
+let totalRotation = 0;
+let localSpinning = false;
+let lastHandledSpinId = -1;
+
+const spinBtn = document.getElementById('spinBtn');
+const overlay = document.getElementById('overlay');
+const cardNum = document.getElementById('cardNum');
+const cardQ = document.getElementById('cardQ');
+const closeBtn = document.getElementById('closeBtn');
+const progress = document.getElementById('progress');
+const roundDone = document.getElementById('roundDone');
+const statusEl = document.getElementById('status');
+
+// ---- PASTE YOUR FIREBASE CONFIG HERE (see comment in <head>) ----
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyCFnP9PsbVLKMMP2ejgG4Q1P8eK3GrTdf4",
+  authDomain: "the-game-54950.firebaseapp.com",
+  projectId: "the-game-54950",
+  storageBucket: "the-game-54950.firebasestorage.app",
+  messagingSenderId: "849615190647",
+  appId: "1:849615190647:web:3adba94bf7ba8c1c1b6472",
+  measurementId: "G-JJGBNTV0C6"
+};
+
+let db = null;
+let docRef = null;
+const configIsFilledIn = Object.values(FIREBASE_CONFIG).every(v => v && v !== 'REPLACE_ME');
+
+if(configIsFilledIn){
+  firebase.initializeApp(FIREBASE_CONFIG);
+  db = firebase.firestore();
+  docRef = db.collection('overshareWheel').doc('state'); // single doc holds ALL game state
+}else{
+  console.error('Firebase config not set - see setup instructions in <head> of this file.');
+}
+
+function updateProgressFromState(state){
+  progress.innerHTML = `<b>${state.askedCount}</b> of <b>${N}</b> asked this round`;
+  roundDone.classList.toggle('show', state.deck.length === 0);
+}
+
+function animateToTarget(targetIndex){
+  localSpinning = true;
+  spinBtn.disabled = true;
+  roundDone.classList.remove('show');
+
+  const targetMidDeg = targetIndex*segDeg + segDeg/2; // wheel-local deg from top, clockwise
+  const currentMod = ((totalRotation % 360) + 360) % 360;
+  const desiredMod = ((360 - targetMidDeg) % 360 + 360) % 360;
+  let diff = (desiredMod - currentMod + 360) % 360;
+  const extraSpins = 5 + Math.floor(Math.random()*3); // 5-7 extra turns
+  totalRotation += diff + extraSpins*360;
+
+  canvas.style.transform = `rotate(${totalRotation}deg)`;
+
+  setTimeout(()=>{
+    cardNum.textContent = 'Q' + (targetIndex+1);
+    cardQ.textContent = QUESTIONS[targetIndex];
+    overlay.classList.add('show');
+    localSpinning = false;
+  }, 4300);
+}
+
+function freshState(){
+  return { deck: shuffledDeck(), askedCount: 0, spinId: 0, targetIndex: null, lockUntil: 0 };
+}
+
+function handleIncomingState(state){
+  updateProgressFromState(state);
+  const locked = state.lockUntil && state.lockUntil > Date.now();
+  spinBtn.disabled = locked || localSpinning;
+
+  if(state.spinId !== lastHandledSpinId && state.targetIndex !== null){
+    lastHandledSpinId = state.spinId;
+    animateToTarget(state.targetIndex);
+  }
+}
+
+async function spin(){
+  if(spinBtn.disabled || !docRef) return;
+  spinBtn.disabled = true;
+  try{
+    const snap = await docRef.get();
+    const state = snap.exists ? snap.data() : freshState();
+
+    if(state.lockUntil && state.lockUntil > Date.now()){
+      return; // someone else just spun; the live listener will show their result
+    }
+
+    let deck = state.deck.slice();
+    let askedCount = state.askedCount;
+    if(deck.length === 0){
+      deck = shuffledDeck();
+      askedCount = 0;
+    }
+    const targetIndex = deck.pop();
+    askedCount += 1;
+
+    // whole game state as one document, one write - real-time listener
+    // pushes it to every open tab instantly, no polling needed
+    const newState = {
+      deck,
+      askedCount,
+      spinId: (state.spinId || 0) + 1,
+      targetIndex,
+      lockUntil: Date.now() + 4300
+    };
+    await docRef.set(newState);
+  }catch(e){
+    console.error('Spin failed', e);
+    spinBtn.disabled = false;
+  }
+}
+
+closeBtn.addEventListener('click', ()=> overlay.classList.remove('show'));
+overlay.addEventListener('click', (e)=>{ if(e.target === overlay) overlay.classList.remove('show'); });
+spinBtn.addEventListener('click', spin);
+
+(async function init(){
+  if(!configIsFilledIn){
+    statusEl.textContent = 'Firebase not configured yet — see setup steps at the top of this file';
+    spinBtn.disabled = true;
+    return;
+  }
+
+  statusEl.textContent = 'Loading game…';
+  spinBtn.disabled = true;
+
+  try{
+    const snap = await docRef.get();
+    if(!snap.exists){
+      await docRef.set(freshState());
+    }
+  }catch(e){
+    console.error('Could not reach Firestore', e);
+    statusEl.textContent = 'Could not connect — check your Firebase config and Firestore rules';
+    return;
+  }
+
+  // real-time listener: fires immediately with current state, then again
+  // the instant either player spins - no polling delay
+  docRef.onSnapshot(
+    (snap)=>{ if(snap.exists) handleIncomingState(snap.data()); },
+    (err)=>{ console.error('Sync error', err); statusEl.textContent = 'Sync error — check Firestore rules'; }
+  );
+
+  statusEl.textContent = 'Synced with everyone on this link';
+})();
+</script>
+
+</body>
+</html>
